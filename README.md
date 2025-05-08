@@ -28,7 +28,6 @@ A Discord music bot powered by discord-player with extensive music playback capa
    Create a `.env` file with the following:
    ```
    TOKEN=your_discord_bot_token
-   CLIENT_ID=your_discord_application_id
    ```
 
 4. Start the bot
