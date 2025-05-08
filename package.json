@@ -1,0 +1,33 @@
+{
+  "name": "discord-music-bot",
+  "version": "1.0.0",
+  "description": "A Discord music bot using discord-player",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "register": "node deploy-commands.js"
+  },
+  "keywords": [
+    "discord",
+    "music",
+    "bot",
+    "discord-player"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@discord-player/extractor": "^7.1.0",
+    "discord-api-types": "^0.38.3",
+    "discord-player": "^7.1.0",
+    "discord-player-spotify": "^1.0.0",
+    "discord-player-youtubei": "github:retrouser955/discord-player-youtubei",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "ffmpeg-static": "^5.2.0",
+    "mediaplex": "^1.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
