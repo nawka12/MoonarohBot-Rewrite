@@ -62,10 +62,21 @@ console.log(`Initializing discord-player ${require('discord-player/package.json'
         // Only register YouTubei extractor - drop other platforms
         console.log('Registering ONLY YouTubei extractor - dropping support for other platforms...');
         
-        // Register YouTubei extractor
+        // Register YouTubei extractor with more flexible download options
         try {
-            await player.extractors.register(YoutubeiExtractor);
-            console.log('YouTubei extractor registered - THIS WILL BE USED FOR ALL STREAMING AND METADATA');
+            // Configure YoutubeiExtractor with more format options
+            await player.extractors.register(YoutubeiExtractor, {
+                // Try multiple formats in order (fallback sequence)
+                downloadOptions: [
+                    { quality: 'best', format: 'mp4', type: 'audio' },
+                    { quality: 'best', format: 'mp4', type: 'video+audio' },
+                    { quality: 'best', format: 'webm', type: 'audio' },
+                    { quality: 'best', format: 'webm', type: 'video+audio' },
+                    { quality: 'best', type: 'audio' },  // Any format
+                    { quality: 'best' }  // Any format and type
+                ]
+            });
+            console.log('YouTubei extractor registered with extended format options');
             
             // FORCE YouTubei as the ONLY streaming extractor
             player.extractors.setPreference('YouTubeiExtractor', true);
