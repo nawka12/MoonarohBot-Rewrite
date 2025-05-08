@@ -1,5 +1,5 @@
 {
-  "name": "discord-music-bot",
+  "name": "moonarohbot-rewrite",
   "version": "1.0.0",
   "description": "A Discord music bot using discord-player",
   "main": "index.js",
