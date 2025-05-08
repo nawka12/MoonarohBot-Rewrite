@@ -11,6 +11,10 @@ A Discord music bot powered by discord-player with extensive music playback capa
 - Command-based interface
 - Easy setup and deployment
 
+## Current Limitations
+
+**Note:** Currently, only YouTube is supported as a music source due to issues with the `@discord-player/extractors` packages. Support for additional platforms (Spotify, SoundCloud, etc.) will be added in future updates.
+
 ## Installation
 
 1. Clone the repository
@@ -42,13 +46,31 @@ A Discord music bot powered by discord-player with extensive music playback capa
 
 Note: The bot automatically registers slash commands on startup for all guilds it's in. You don't need to run the register command separately.
 
+## Available Commands
+
+The bot supports the following slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/play` | Play a song from YouTube by providing a URL or search query |
+| `/pause` | Pauses the current song |
+| `/resume` | Resumes playback of a paused song |
+| `/skip` | Skips the currently playing song |
+| `/stop` | Stops playback, clears the queue, and disconnects the bot |
+| `/queue` | Displays the current song queue with pagination |
+| `/nowplaying` | Shows information about the currently playing song |
+| `/volume` | Adjusts the playback volume (0-200%) |
+| `/loop` | Sets the loop mode (Off, Track, Queue, or Autoplay) |
+| `/shuffle` | Shuffles the current queue |
+| `/remove` | Removes a specific song from the queue |
+| `/seek` | Jumps to a specific position in the current song |
+
 ## Running with PM2 (Recommended for 24/7 operation)
 
 PM2 is a process manager for Node.js applications that helps keep your bot running continuously.
 
 1. Install PM2 globally
-   ```
-   npm install -g pm2
+   ```   npm install -g pm2
    ```
 
 2. Start the bot with PM2
