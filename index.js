@@ -162,12 +162,24 @@ player.events.on('playerStart', async (queue, track) => {
 player.events.on('audioTrackAdd', (queue, track) => {
     if (queue.metadata?.channel) {
         queue.metadata.channel.send(`🎶 | Track **${track.title}** queued!`).catch(console.error);
+        
+        // Clear the disconnect timer if it exists
+        if (disconnectTimers.has(queue.guild.id)) {
+            clearTimeout(disconnectTimers.get(queue.guild.id));
+            disconnectTimers.delete(queue.guild.id);
+        }
     }
 });
 
 player.events.on('audioTracksAdd', (queue, tracks) => {
     if (queue.metadata?.channel) {
         queue.metadata.channel.send(`🎶 | **${tracks.length}** tracks queued!`).catch(console.error);
+        
+        // Clear the disconnect timer if it exists
+        if (disconnectTimers.has(queue.guild.id)) {
+            clearTimeout(disconnectTimers.get(queue.guild.id));
+            disconnectTimers.delete(queue.guild.id);
+        }
     }
 });
 
@@ -177,15 +189,37 @@ player.events.on('disconnect', (queue) => {
     }
 });
 
+// Store timeout IDs for each guild to manage disconnection timers
+const disconnectTimers = new Map();
+
 player.events.on('emptyChannel', (queue) => {
     if (queue.metadata?.channel) {
-        queue.metadata.channel.send('誰もいないのでボイスチャンネルから退出しました。').catch(console.error);
+        queue.metadata.channel.send('👋 | Voice channel is empty! Disconnecting...').catch(console.error);
+        // Ensure we delete the queue to disconnect
+        queue.delete();
     }
 });
 
 player.events.on('emptyQueue', (queue) => {
     if (queue.metadata?.channel) {
-        queue.metadata.channel.send('✅ | Queue finished!').catch(console.error);
+        queue.metadata.channel.send('✅ | Queue finished! Will disconnect in 1 minute if no songs are added.').catch(console.error);
+        
+        // Clear any existing timer for this guild
+        if (disconnectTimers.has(queue.guild.id)) {
+            clearTimeout(disconnectTimers.get(queue.guild.id));
+        }
+        
+        // Set a new timer to disconnect after 1 minute
+        const timerId = setTimeout(() => {
+            // Check if the queue is still empty before disconnecting
+            if (queue.tracks.size === 0 && !queue.currentTrack) {
+                queue.metadata.channel.send('👋 | No songs added after 1 minute. Disconnecting...').catch(console.error);
+                queue.delete();
+                disconnectTimers.delete(queue.guild.id);
+            }
+        }, 60000); // 1 minute
+        
+        disconnectTimers.set(queue.guild.id, timerId);
     }
 });
 
@@ -477,6 +511,36 @@ client.on('interactionCreate', async interaction => {
             await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
         } else {
             await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+        }
+    }
+});
+
+// Replace the previous voiceStateUpdate handler with this improved version
+client.on("voiceStateUpdate", (oldState, newState) => {
+    // Check if a user has left a voice channel
+    if (oldState.channelId && !newState.channelId) {
+        const guild = oldState.guild;
+        const channel = oldState.channel;
+        
+        // If the bot is in a voice channel in this guild
+        if (guild.members.me && guild.members.me.voice.channel) {
+            const botVoiceChannel = guild.members.me.voice.channel;
+            
+            // Get current queue for this guild
+            const queue = player.nodes.get(guild.id);
+            
+            // Check if the bot is the only one left in the voice channel
+            if (botVoiceChannel.members.size === 1 && queue) {
+                // Get the text channel associated with the player
+                const textChannel = queue.metadata?.channel;
+                
+                if (textChannel) {
+                    textChannel.send("👋 | Everyone left the voice channel. Disconnecting...").catch(console.error);
+                    
+                    // Disconnect the bot and clear the queue
+                    queue.delete();
+                }
+            }
         }
     }
 });
