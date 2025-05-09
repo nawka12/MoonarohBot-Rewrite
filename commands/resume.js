@@ -8,7 +8,7 @@ module.exports = {
         await interaction.deferReply();
         const queue = player.nodes.get(interaction.guildId);
 
-        if (!queue || !queue.node.isPlaying()) {
+        if (!queue || !queue.currentTrack) {
             return await interaction.editReply({ content: '❌ | No music is in the queue!', ephemeral: true });
         }
 
