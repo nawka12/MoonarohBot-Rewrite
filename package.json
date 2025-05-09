@@ -15,7 +15,7 @@
     "discord-player"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@discord-player/extractor": "^7.1.0",
     "discord-api-types": "^0.38.3",

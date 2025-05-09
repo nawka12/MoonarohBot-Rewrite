@@ -38,6 +38,7 @@ config.json
 auth.json
 secrets.json
 credentials.json
+licenses.json
 
 # Debug files
 .nyc_output/
