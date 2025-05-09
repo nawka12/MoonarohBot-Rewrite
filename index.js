@@ -67,36 +67,38 @@ console.log(`Initializing discord-player ${require('discord-player/package.json'
             // Configure YoutubeiExtractor with more format options
             await player.extractors.register(YoutubeiExtractor, {
                 // Try multiple formats in order (fallback sequence)
-                downloadOptions: [
-                    { quality: 'best', format: 'mp4', type: 'audio' },
-                    { quality: 'best', format: 'mp4', type: 'video+audio' },
-                    { quality: 'best', format: 'webm', type: 'audio' },
-                    { quality: 'best', format: 'webm', type: 'video+audio' },
-                    { quality: 'best', format: 'mp3', type: 'audio' },
-                    { quality: 'best', format: 'opus', type: 'audio' },
-                    { quality: 'best', format: 'ogg', type: 'audio' },
-                    { quality: 'highest', type: 'audio' },
-                    { quality: 'high', type: 'audio' },
-                    { quality: 'medium', type: 'audio' },
-                    { quality: 'best', type: 'audio' },
-                    { quality: 'best' }  // Any format and type as last resort
-                ]
+                downloadOptions: {
+                    quality: 'highestaudio',
+                    filter: 'audioonly',
+                    highWaterMark: 1 << 25,
+                    dlChunkSize: 0,
+                    // Fallback options
+                    formats: [
+                        { quality: 'highest', filter: 'audioonly' },
+                        { quality: 'highestaudio' },
+                        { quality: 'high', filter: 'audioonly' },
+                        { quality: 'best', filter: 'audioonly' },
+                        { quality: 'lowestaudio' },
+                        { filter: 'audioonly' },
+                        { quality: 'highest' },
+                        { quality: 'lowest' }
+                    ]
+                }
             });
             console.log('YouTubei extractor registered with extended format options');
             
-            // FORCE YouTubei as the ONLY streaming extractor
-            player.extractors.setPreference('YouTubeiExtractor', true);
-            console.log('FORCED YouTubei as the mandatory extractor for all operations');
+            // Since setPreference is not available, we'll handle priority differently
+            // Make this the default extractor by registering it first
+            console.log('Using YouTubei as primary extractor');
         } catch (error) {
             console.error(`Failed to register YouTubei extractor: ${error.message}`);
         }
         
-        // Disable fallback to ensure if YouTubei fails, it fails completely
-        player.extractors.setFallback(false);
-        console.log('Extractor fallback DISABLED - using ONLY YouTubei');
+        // Since setFallback is not available, we'll handle fallbacks in our error handlers
+        console.log('Custom fallback mechanism will be used instead');
         
         // Log total registered extractors
-        console.log(`Total registered extractors: ${player.extractors.size} (YouTube only)`);
+        console.log(`Total registered extractors: ${player.extractors.size}`);
     } catch (error) {
         console.error(`Error in extractor registration: ${error.message}`);
     }
@@ -270,14 +272,22 @@ async function handleTrackFallback(queue, track, errorMessage) {
         }
         
         // Get the track title to use for search
-        const searchQuery = track.title;
-        console.log(`Fallback searching with query: "${searchQuery}"`);
+        const songTitle = track.title;
+        // Extract just the song name and artist, removing any additional info
+        const simplifiedQuery = songTitle
+            .replace(/\(.*?\)/g, '') // Remove content in parentheses
+            .replace(/\[.*?\]/g, '') // Remove content in square brackets
+            .replace(/【.*?】/g, '')  // Remove content in Japanese brackets
+            .replace(/「.*?」/g, '')  // Remove content in Japanese quotes
+            .replace(/official|music video|audio|lyrics|full|mv/gi, '')
+            .trim();
+        
+        console.log(`Fallback searching with simplified query: "${simplifiedQuery}"`);
         
         // Search by the track title (using YouTubei explicitly)
-        const searchResults = await player.search(searchQuery, {
+        const searchResults = await player.search(simplifiedQuery, {
             requestedBy: track.requestedBy || queue.metadata.requestedBy,
-            searchEngine: 'youtube', // Force YouTube search
-            extractor: "YouTubeiExtractor" // Force YouTubei extractor
+            searchEngine: 'youtube' // Force YouTube search
         });
         
         console.log(`Fallback search returned ${searchResults?.tracks?.length || 0} results`);
@@ -370,7 +380,7 @@ async function handleTrackFallback(queue, track, errorMessage) {
             }
         } else {
             // No search results
-            console.log(`No alternative tracks found for "${searchQuery}"`);
+            console.log(`No alternative tracks found for "${simplifiedQuery}"`);
             await queue.metadata.channel.send(`❌ | Could not find any alternatives for "${track.title}"`);
         }
         
@@ -418,11 +428,10 @@ player.events.on('playerError', async (queue, error) => {
                 
             console.log(`Simplified search query: "${simplifiedQuery}"`);
             
-            // Search by the simplified title (explicitly using YouTubei)
+            // Search by the simplified title
             const searchResults = await player.search(simplifiedQuery, {
                 requestedBy: failedTrack.requestedBy,
-                searchEngine: 'youtube',
-                extractor: "YouTubeiExtractor"
+                searchEngine: 'youtube'
             });
             
             if (searchResults && searchResults.tracks.length > 0) {
