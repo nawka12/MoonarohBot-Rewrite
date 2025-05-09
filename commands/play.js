@@ -166,12 +166,51 @@ module.exports = {
                             const playPromise = queue.node.play();
                             
                             // Wait a short time to see if an error occurs during playback start
-                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            await new Promise(resolve => setTimeout(resolve, 3000));
                             
                             // Check if we're still playing after the delay
                             if (!queue.isPlaying()) {
                                 console.log(`Play command: Playback failed silently, throwing error`);
-                                throw new Error("Playback failed to start properly");
+                                
+                                // If the currentTrack exists but isn't playing, it might be a format issue
+                                if (queue.currentTrack) {
+                                    console.log(`Play command: Format error likely - trying simplified search`);
+                                    
+                                    // Extract just the song name and artist for a simplified search
+                                    const songTitle = queue.currentTrack.title;
+                                    const simplifiedQuery = songTitle
+                                        .replace(/\(.*?\)/g, '') // Remove content in parentheses
+                                        .replace(/\[.*?\]/g, '') // Remove content in square brackets
+                                        .replace(/【.*?】/g, '')  // Remove content in Japanese brackets
+                                        .replace(/「.*?」/g, '')  // Remove content in Japanese quotes
+                                        .replace(/official|music video|audio|lyrics|full|mv/gi, '')
+                                        .trim();
+                                    
+                                    await interaction.editReply({ content: `⚠️ Playback error - trying simplified search: "${simplifiedQuery}"` });
+                                    
+                                    // Search with the simplified query
+                                    const fallbackResults = await player.search(simplifiedQuery, {
+                                        requestedBy: interaction.user,
+                                        searchEngine: "auto",
+                                        extractor: "YouTubeiExtractor"
+                                    });
+                                    
+                                    if (fallbackResults && fallbackResults.tracks.length > 0) {
+                                        // Clear queue and add first result
+                                        queue.tracks.clear();
+                                        queue.addTrack(fallbackResults.tracks[0]);
+                                        
+                                        // Try to play again
+                                        await queue.node.play();
+                                        
+                                        // If this succeeds, we can return
+                                        console.log("Play command: Format error recovery succeeded");
+                                        success = true;
+                                        return;
+                                    }
+                                }
+                                
+                                throw new Error("Playback failed to start properly - likely a format error");
                             }
                             
                             // Now we can safely consider this successful

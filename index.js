@@ -72,8 +72,14 @@ console.log(`Initializing discord-player ${require('discord-player/package.json'
                     { quality: 'best', format: 'mp4', type: 'video+audio' },
                     { quality: 'best', format: 'webm', type: 'audio' },
                     { quality: 'best', format: 'webm', type: 'video+audio' },
-                    { quality: 'best', type: 'audio' },  // Any format
-                    { quality: 'best' }  // Any format and type
+                    { quality: 'best', format: 'mp3', type: 'audio' },
+                    { quality: 'best', format: 'opus', type: 'audio' },
+                    { quality: 'best', format: 'ogg', type: 'audio' },
+                    { quality: 'highest', type: 'audio' },
+                    { quality: 'high', type: 'audio' },
+                    { quality: 'medium', type: 'audio' },
+                    { quality: 'best', type: 'audio' },
+                    { quality: 'best' }  // Any format and type as last resort
                 ]
             });
             console.log('YouTubei extractor registered with extended format options');
@@ -382,6 +388,71 @@ async function handleTrackFallback(queue, track, errorMessage) {
 player.events.on('playerError', async (queue, error) => {
     console.error(`[Player Node Error] Error in guild ${queue?.guild?.id || 'unknown'}: ${error.message}`);
     
+    // Special handling for format errors
+    if (error.message.includes('No matching formats found') || error.message.includes('format') || error.message.includes('quality')) {
+        console.log('Format-related error detected, switching to direct YouTube search fallback');
+        
+        // Get the failed track
+        const failedTrack = queue.currentTrack;
+        if (!failedTrack) {
+            if (queue.metadata?.channel) {
+                queue.metadata.channel.send(`❌ | Format error with no current track info.`).catch(console.error);
+            }
+            return;
+        }
+        
+        try {
+            if (queue.metadata?.channel) {
+                queue.metadata.channel.send(`⚠️ | Format error detected. Trying YouTube search fallback...`).catch(console.error);
+            }
+            
+            // Extract just the song name and artist, removing any additional info
+            const songTitle = failedTrack.title;
+            const simplifiedQuery = songTitle
+                .replace(/\(.*?\)/g, '') // Remove content in parentheses
+                .replace(/\[.*?\]/g, '') // Remove content in square brackets
+                .replace(/【.*?】/g, '')  // Remove content in Japanese brackets
+                .replace(/「.*?」/g, '')  // Remove content in Japanese quotes
+                .replace(/official|music video|audio|lyrics|full|mv/gi, '')
+                .trim();
+                
+            console.log(`Simplified search query: "${simplifiedQuery}"`);
+            
+            // Search by the simplified title (explicitly using YouTubei)
+            const searchResults = await player.search(simplifiedQuery, {
+                requestedBy: failedTrack.requestedBy,
+                searchEngine: 'youtube',
+                extractor: "YouTubeiExtractor"
+            });
+            
+            if (searchResults && searchResults.tracks.length > 0) {
+                // Skip current track that failed
+                queue.node.stop();
+                
+                // Add first search result to queue
+                const newTrack = searchResults.tracks[0];
+                console.log(`Format error fallback: Adding "${newTrack.title}" to queue`);
+                queue.addTrack(newTrack);
+                
+                // Start playback if not already playing
+                if (!queue.isPlaying()) {
+                    await queue.node.play();
+                    console.log('Format error fallback: Started playback of new track');
+                }
+                
+                if (queue.metadata?.channel) {
+                    queue.metadata.channel.send(`✅ | Format fallback - Now playing: **${newTrack.title}**`).catch(console.error);
+                }
+                return;
+            } else {
+                console.log('Format error fallback: No search results found');
+            }
+        } catch (formatFallbackError) {
+            console.error('Format error fallback failed:', formatFallbackError);
+        }
+    }
+    
+    // If we get here, either the special handling didn't apply or it failed
     // Get the failed track
     const failedTrack = queue.currentTrack;
     if (!failedTrack) {
