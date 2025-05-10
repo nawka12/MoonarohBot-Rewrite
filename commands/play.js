@@ -1,6 +1,23 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { QueryType } = require('discord-player');
 
+// Get access to the global fallback tracking
+const fallbacksInProgress = global.fallbacksInProgress || (global.fallbacksInProgress = new Map());
+
+// Helper to safely set fallback tracking with timeout
+function setFallbackInProgress(guildId) {
+    console.log(`[DEBUG] Play command setting fallback in progress for guild ${guildId}`);
+    fallbacksInProgress.set(guildId, true);
+    
+    // Auto-clear after 2 minutes to prevent getting stuck
+    setTimeout(() => {
+        if (fallbacksInProgress.has(guildId)) {
+            console.log(`[DEBUG] Auto-clearing play command fallback status for guild ${guildId} after timeout`);
+            fallbacksInProgress.delete(guildId);
+        }
+    }, 120000); // 2 minutes timeout
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('play')
@@ -162,6 +179,9 @@ module.exports = {
                         try {
                             console.log(`Play command: Attempting to play now...`);
                             
+                            // Mark fallback as in progress at the beginning
+                            setFallbackInProgress(interaction.guildId);
+                            
                             // Start playing the first track in queue (which we just added)
                             const playPromise = queue.node.play();
                             
@@ -206,6 +226,9 @@ module.exports = {
                                         // If this succeeds, we can return
                                         console.log("Play command: Format error recovery succeeded");
                                         success = true;
+                                        
+                                        // Clear fallback tracking since we're done
+                                        fallbacksInProgress.delete(interaction.guildId);
                                         return;
                                     }
                                 }
@@ -216,6 +239,9 @@ module.exports = {
                             // Now we can safely consider this successful
                             await playPromise;
                             console.log(`Play command: Successfully started playback!`);
+                            
+                            // Clear fallback tracking since we're done
+                            fallbacksInProgress.delete(interaction.guildId);
                         } catch (error) {
                             throw error; // Re-throw to be caught by outer catch block
                         }
@@ -223,6 +249,9 @@ module.exports = {
                         // Already playing, just confirm success
                         console.log(`Play command: Track added to queue, continuing current playback`);
                         success = true;
+                        
+                        // Clear fallback tracking since we're done
+                        fallbacksInProgress.delete(interaction.guildId);
                     }
                 } catch (error) {
                     console.error(`Play command attempt ${attemptCount+1} failed:`, error);
@@ -264,6 +293,10 @@ module.exports = {
             if (!success) {
                 console.log(`Play command: All fallback attempts failed after ${attemptCount} tries`);
                 player.nodes.delete(interaction.guildId);
+                
+                // Clear fallback tracking since we're done
+                fallbacksInProgress.delete(interaction.guildId);
+                
                 return await interaction.editReply({ 
                     content: `❌ | Failed to play after ${attemptCount} attempts. Error: ${lastError?.message || 'Unknown error'}`,
                     ephemeral: true 
@@ -305,6 +338,9 @@ module.exports = {
         } catch (error) {
             console.error('[PlayCommand Error]:', error);
             player.nodes.delete(interaction.guildId); // Clean up the queue if an error occurs
+            
+            // Clear fallback tracking since we're done with an error
+            fallbacksInProgress.delete(interaction.guildId);
             
             // Provide YouTube-specific error messages
             if (error.message?.includes('age restricted')) {

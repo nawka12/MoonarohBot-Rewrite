@@ -147,7 +147,27 @@ async function deployCommands() {
     }
 }
 
-// Update playerStart event handler - remove Japanese character detection
+// Store timeout IDs for each guild to manage disconnection timers
+const disconnectTimers = new Map();
+
+// Track fallback operations in progress (made global for sharing across modules)
+global.fallbacksInProgress = new Map();
+const fallbacksInProgress = global.fallbacksInProgress;
+
+// Helper to set fallback in progress with an automatic timeout
+function setFallbackInProgress(guildId) {
+    console.log(`[DEBUG] Setting fallback in progress for guild ${guildId}`);
+    fallbacksInProgress.set(guildId, true);
+    
+    // Auto-clear after 2 minutes to prevent getting stuck
+    setTimeout(() => {
+        if (fallbacksInProgress.has(guildId)) {
+            console.log(`[DEBUG] Auto-clearing fallback status for guild ${guildId} after timeout`);
+            fallbacksInProgress.delete(guildId);
+        }
+    }, 120000); // 2 minutes timeout
+}
+
 player.events.on('playerStart', async (queue, track) => {
     const embed = new EmbedBuilder()
         .setColor(0x0099FF)
@@ -197,9 +217,6 @@ player.events.on('disconnect', (queue) => {
     }
 });
 
-// Store timeout IDs for each guild to manage disconnection timers
-const disconnectTimers = new Map();
-
 player.events.on('emptyChannel', (queue) => {
     if (queue.metadata?.channel) {
         queue.metadata.channel.send('👋 | Voice channel is empty! Disconnecting...').catch(console.error);
@@ -209,6 +226,26 @@ player.events.on('emptyChannel', (queue) => {
 });
 
 player.events.on('emptyQueue', (queue) => {
+    // Add detailed logging to debug the race condition
+    console.log(`[DEBUG] emptyQueue event fired for guild ${queue.guild.id}`);
+    console.log(`[DEBUG] Current fallbacks in progress: ${JSON.stringify(Array.from(fallbacksInProgress.keys()))}`);
+    console.log(`[DEBUG] Is fallback in progress for this guild: ${fallbacksInProgress.has(queue.guild.id)}`);
+    
+    // Check if we should handle this emptyQueue event
+    // 1. Check if a fallback is in progress
+    // 2. Check if any errors were recently reported
+    // 3. Check if queue was manually deleted (connection gone)
+    if (fallbacksInProgress.has(queue.guild.id)) {
+        console.log(`Queue appears empty but fallback is in progress for guild ${queue.guild.id} - skipping disconnect timer`);
+        return;
+    }
+    
+    // Also check if connection is still valid - don't start a disconnect timer if already disconnected
+    if (!queue.connection || !queue.connection.channel) {
+        console.log(`Queue appears empty but connection is already gone - skipping disconnect timer`);
+        return;
+    }
+
     if (queue.metadata?.channel) {
         queue.metadata.channel.send('✅ | Queue finished! Will disconnect in 1 minute if no songs are added.').catch(console.error);
         
@@ -249,8 +286,11 @@ async function handleTrackFallback(queue, track, errorMessage) {
     try {
         console.log(`FALLBACK TRIGGERED for track: "${track.title}"`);
         
-        // First notify about the error
-        await queue.metadata.channel.send(`❌ | ${errorMessage}. Starting fallback system...`);
+        // Mark fallback as in progress
+        setFallbackInProgress(queue.guild.id);
+        
+        // First notify about the error and inform about fallback
+        await queue.metadata.channel.send(`❌ | ${errorMessage}. **Starting fallback system to find an alternative track...**`);
         
         // Force stop any current playback with improved error handling
         try {
@@ -281,19 +321,13 @@ async function handleTrackFallback(queue, track, errorMessage) {
         
         // Get the track title to use for search
         const songTitle = track.title;
-        // Extract just the song name and artist, removing any additional info
-        const simplifiedQuery = songTitle
-            .replace(/\(.*?\)/g, '') // Remove content in parentheses
-            .replace(/\[.*?\]/g, '') // Remove content in square brackets
-            .replace(/【.*?】/g, '')  // Remove content in Japanese brackets
-            .replace(/「.*?」/g, '')  // Remove content in Japanese quotes
-            .replace(/official|music video|audio|lyrics|full|mv/gi, '')
-            .trim();
+        // Use the original title instead of heavily simplifying it
+        const searchQuery = songTitle;
         
-        console.log(`Fallback searching with simplified query: "${simplifiedQuery}"`);
+        console.log(`Fallback searching with original title: "${searchQuery}"`);
         
         // Search by the track title (using YouTubei explicitly)
-        const searchResults = await player.search(simplifiedQuery, {
+        const searchResults = await player.search(searchQuery, {
             requestedBy: track.requestedBy || queue.metadata.requestedBy,
             searchEngine: 'youtube' // Force YouTube search
         });
@@ -331,12 +365,36 @@ async function handleTrackFallback(queue, track, errorMessage) {
                     // Ensure connection is valid
                     if (!queue.connection || !queue.connection.channel) {
                         console.log('Voice connection lost, attempting to reconnect');
+                        
                         // Try to reconnect to the voice channel
-                        if (queue.metadata?.member?.voice?.channel) {
-                            await queue.connect(queue.metadata.member.voice.channel);
-                            console.log('Reconnected to voice channel');
+                        // First check if bot is already in a voice channel
+                        const guild = queue.guild;
+                        const botMember = guild.members.cache.get(client.user.id);
+                        let voiceChannel = botMember?.voice?.channel;
+                        
+                        // If bot is not in a voice channel, try to use the requester's channel
+                        if (!voiceChannel && queue.metadata?.member?.voice?.channel) {
+                            voiceChannel = queue.metadata.member.voice.channel;
+                        }
+                        
+                        // If still no voice channel, try to fetch the member to get updated voice state
+                        if (!voiceChannel && queue.metadata?.member?.id) {
+                            try {
+                                const updatedMember = await guild.members.fetch(queue.metadata.member.id);
+                                if (updatedMember?.voice?.channel) {
+                                    voiceChannel = updatedMember.voice.channel;
+                                }
+                            } catch (fetchError) {
+                                console.error('Error fetching updated member:', fetchError);
+                            }
+                        }
+                        
+                        // If we found a valid voice channel, connect to it
+                        if (voiceChannel) {
+                            await queue.connect(voiceChannel);
+                            console.log(`Reconnected to voice channel: ${voiceChannel.name}`);
                         } else {
-                            throw new Error('Cannot reconnect to voice channel - user not in a voice channel');
+                            throw new Error('Cannot reconnect to voice channel - no valid voice channel found');
                         }
                     }
                     
@@ -373,7 +431,7 @@ async function handleTrackFallback(queue, track, errorMessage) {
                     // If we got here, it worked!
                     played = true;
                     console.log(`Fallback SUCCESS with "${newTrack.title}"`);
-                    await queue.metadata.channel.send(`✅ | Fallback succeeded! Now playing: **${newTrack.title}**`);
+                    await queue.metadata.channel.send(`✅ | **Fallback succeeded!** Now playing alternative track: **${newTrack.title}**`);
                     return true;
                 } catch (fallbackError) {
                     console.error(`Fallback attempt ${attempts+1} failed:`, fallbackError);
@@ -381,23 +439,26 @@ async function handleTrackFallback(queue, track, errorMessage) {
                 }
             }
             
-            // If all fallback attempts failed
-            if (!played) {
-                console.log(`All ${attempts} fallback attempts failed`);
-                await queue.metadata.channel.send(`❌ | All fallback attempts failed after trying ${attempts} alternatives.`);
-            }
+            // If all fallback attempts failed or no results found
+            console.log(`All ${attempts} fallback attempts failed`);
+            await queue.metadata.channel.send(`❌ | All fallback attempts failed after trying ${attempts} alternatives.`);
+            
+            fallbacksInProgress.delete(queue.guild.id);
+            return false;
         } else {
             // No search results
-            console.log(`No alternative tracks found for "${simplifiedQuery}"`);
+            console.log(`No alternative tracks found for "${searchQuery}"`);
             await queue.metadata.channel.send(`❌ | Could not find any alternatives for "${track.title}"`);
         }
         
+        fallbacksInProgress.delete(queue.guild.id);
         return false;
     } catch (fallbackError) {
         console.error(`[Fallback System Error]`, fallbackError);
         if (queue.metadata?.channel) {
             await queue.metadata.channel.send(`❌ | Fallback system error: ${fallbackError.message}`).catch(console.error);
         }
+        fallbacksInProgress.delete(queue.guild.id);
         return false;
     }
 }
@@ -405,6 +466,11 @@ async function handleTrackFallback(queue, track, errorMessage) {
 // Update the playerError event handler
 player.events.on('playerError', async (queue, error) => {
     console.error(`[Player Node Error] Error in guild ${queue?.guild?.id || 'unknown'}: ${error.message}`);
+    
+    // Mark fallback as in progress immediately
+    if (queue?.guild?.id) {
+        setFallbackInProgress(queue.guild.id);
+    }
     
     // Special handling for format errors
     if (error.message.includes('No matching formats found') || error.message.includes('format') || error.message.includes('quality')) {
@@ -421,23 +487,17 @@ player.events.on('playerError', async (queue, error) => {
         
         try {
             if (queue.metadata?.channel) {
-                queue.metadata.channel.send(`⚠️ | Format error detected. Trying YouTube search fallback...`).catch(console.error);
+                queue.metadata.channel.send(`⚠️ | Format error detected. Trying to find an alternative version...`).catch(console.error);
             }
             
             // Extract just the song name and artist, removing any additional info
             const songTitle = failedTrack.title;
-            const simplifiedQuery = songTitle
-                .replace(/\(.*?\)/g, '') // Remove content in parentheses
-                .replace(/\[.*?\]/g, '') // Remove content in square brackets
-                .replace(/【.*?】/g, '')  // Remove content in Japanese brackets
-                .replace(/「.*?」/g, '')  // Remove content in Japanese quotes
-                .replace(/official|music video|audio|lyrics|full|mv/gi, '')
-                .trim();
+            const searchQuery = songTitle;
                 
-            console.log(`Simplified search query: "${simplifiedQuery}"`);
+            console.log(`Simplified search query: "${searchQuery}"`);
             
             // Search by the simplified title
-            const searchResults = await player.search(simplifiedQuery, {
+            const searchResults = await player.search(searchQuery, {
                 requestedBy: failedTrack.requestedBy,
                 searchEngine: 'youtube'
             });
@@ -458,7 +518,7 @@ player.events.on('playerError', async (queue, error) => {
                 }
                 
                 if (queue.metadata?.channel) {
-                    queue.metadata.channel.send(`✅ | Format fallback - Now playing: **${newTrack.title}**`).catch(console.error);
+                    queue.metadata.channel.send(`✅ | **Format fallback successful** - Now playing alternative track: **${newTrack.title}**`).catch(console.error);
                 }
                 return;
             } else {
@@ -480,6 +540,9 @@ player.events.on('playerError', async (queue, error) => {
     }
     
     console.log('PLAYER ERROR EVENT - Triggering fallback system');
+    if (queue.metadata?.channel) {
+        await queue.metadata.channel.send(`⚠️ | Playback error detected. Looking for an alternative version...`);
+    }
     const success = await handleTrackFallback(queue, failedTrack, `Failed to play track: ${error.message}`);
     
     if (!success) {
@@ -494,6 +557,7 @@ player.events.on('trackEnd', async (queue, track, reason) => {
     // Only trigger fallback for tracks that end with an error
     if (reason === 'ERROR') {
         console.log('Track ended with ERROR - Triggering fallback');
+        await queue.metadata.channel.send(`⚠️ | Track ended unexpectedly. Searching for an alternative...`);
         await handleTrackFallback(queue, track, 'Track ended with an error');
     }
 });
@@ -501,6 +565,11 @@ player.events.on('trackEnd', async (queue, track, reason) => {
 // Enhanced error event handler
 player.events.on('error', async (queue, error) => {
     console.error(`[Player Error] Error in guild ${queue?.guild?.id || 'unknown'}: ${error.message}`);
+    
+    // Mark fallback as in progress immediately
+    if (queue?.guild?.id) {
+        setFallbackInProgress(queue.guild.id);
+    }
     
     // Only attempt fallback if we have the current track
     const currentTrack = queue.currentTrack;
@@ -512,6 +581,9 @@ player.events.on('error', async (queue, error) => {
     }
     
     console.log('ERROR EVENT - Triggering fallback system');
+    if (queue.metadata?.channel) {
+        await queue.metadata.channel.send(`⚠️ | Error playing track. Searching for an alternative version...`);
+    }
     const success = await handleTrackFallback(queue, currentTrack, `Error playing track: ${error.message}`);
     
     if (!success) {
