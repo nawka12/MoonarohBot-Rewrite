@@ -219,6 +219,14 @@ player.events.on('emptyQueue', (queue) => {
         
         // Set a new timer to disconnect after 1 minute
         const timerId = setTimeout(() => {
+            // Check if the queue still exists in the player
+            const currentQueue = player.nodes.get(queue.guild.id);
+            if (!currentQueue) {
+                // Queue already deleted, just clean up the timer
+                disconnectTimers.delete(queue.guild.id);
+                return;
+            }
+            
             // Check if the queue is still empty before disconnecting
             if (queue.tracks.size === 0 && !queue.currentTrack) {
                 queue.metadata.channel.send('👋 | No songs added after 1 minute. Disconnecting...').catch(console.error);
