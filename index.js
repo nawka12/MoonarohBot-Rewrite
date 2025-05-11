@@ -72,16 +72,32 @@ console.log(`Initializing discord-player ${require('discord-player/package.json'
                     filter: 'audioonly',
                     highWaterMark: 1 << 25,
                     dlChunkSize: 0,
-                    // Fallback options
+                    // Expanded format fallback options for challenging videos
                     formats: [
                         { quality: 'highest', filter: 'audioonly' },
                         { quality: 'highestaudio' },
                         { quality: 'high', filter: 'audioonly' },
                         { quality: 'best', filter: 'audioonly' },
-                        { quality: 'lowestaudio' },
-                        { filter: 'audioonly' },
+                        // Add more format combinations
+                        { quality: 'highest', type: 'audio' },
+                        { quality: 'highest', format: 'mp4', type: 'audio' },
+                        { quality: 'highest', format: 'webm', type: 'audio' },
+                        { filter: 'audioonly', format: 'mp4' },
+                        { filter: 'audioonly', format: 'webm' },
+                        // Last resort - include video formats too
                         { quality: 'highest' },
-                        { quality: 'lowest' }
+                        { quality: 'high' },
+                        { quality: 'medium' },
+                        { quality: 'lowest' },
+                        // Try all common audio formats
+                        { format: 'mp4', type: 'audio' },
+                        { format: 'webm', type: 'audio' },
+                        { format: 'mp3' },
+                        { format: 'ogg' },
+                        // Absolute last resort - any format
+                        { quality: 'any' },
+                        { type: 'audio' },
+                        {}  // Empty object = any format available
                     ]
                 }
             });
@@ -472,8 +488,84 @@ player.events.on('playerError', async (queue, error) => {
         setFallbackInProgress(queue.guild.id);
     }
     
-    // Special handling for format errors
-    if (error.message.includes('No matching formats found') || error.message.includes('format') || error.message.includes('quality')) {
+    // Special handling for "No matching formats found" errors
+    if (error.message.includes('No matching formats found')) {
+        console.log('No matching formats error detected - trying direct search fallback');
+        
+        // Get the failed track
+        const failedTrack = queue.currentTrack;
+        if (!failedTrack) {
+            if (queue.metadata?.channel) {
+                queue.metadata.channel.send(`❌ | Format error with no current track info.`).catch(console.error);
+            }
+            return;
+        }
+        
+        try {
+            if (queue.metadata?.channel) {
+                queue.metadata.channel.send(`⚠️ | This video format couldn't be played. Searching for the song by title...`).catch(console.error);
+            }
+            
+            // Use the original title for search
+            const searchQuery = failedTrack.title;
+            console.log(`Format error - searching by title: "${searchQuery}"`);
+            
+            // Search directly by title
+            const searchResults = await player.search(searchQuery, {
+                requestedBy: failedTrack.requestedBy,
+                searchEngine: 'youtube'
+            });
+            
+            if (searchResults && searchResults.tracks.length > 0) {
+                // Skip current track that failed
+                queue.node.stop();
+                
+                // Add first search result to queue
+                const newTrack = searchResults.tracks[0];
+                console.log(`Format error recovery: Found "${newTrack.title}"`);
+                
+                // Skip if it's the same URL that just failed
+                if (newTrack.url === failedTrack.url) {
+                    console.log('Format error recovery: Found same track URL - trying next result');
+                    
+                    // Try the second result if available
+                    if (searchResults.tracks.length > 1) {
+                        const secondTrack = searchResults.tracks[1];
+                        console.log(`Format error recovery: Trying second result "${secondTrack.title}"`);
+                        queue.addTrack(secondTrack);
+                    } else {
+                        if (queue.metadata?.channel) {
+                            queue.metadata.channel.send(`❌ | Could not find an alternative version.`).catch(console.error);
+                        }
+                        return;
+                    }
+                } else {
+                    queue.addTrack(newTrack);
+                }
+                
+                // Start playback if not already playing
+                if (!queue.isPlaying()) {
+                    await queue.node.play();
+                    console.log('Format error recovery: Started playback of new track');
+                }
+                
+                if (queue.metadata?.channel) {
+                    queue.metadata.channel.send(`✅ | **Format recovery successful** - Now playing similar track: **${newTrack.title}**`).catch(console.error);
+                }
+                return;
+            } else {
+                console.log('Format error recovery: No search results found');
+                if (queue.metadata?.channel) {
+                    queue.metadata.channel.send(`❌ | Could not find an alternative version by searching.`).catch(console.error);
+                }
+            }
+        } catch (formatRecoveryError) {
+            console.error('Format error recovery failed:', formatRecoveryError);
+        }
+    } 
+    
+    // Special handling for other format errors
+    else if (error.message.includes('format') || error.message.includes('quality')) {
         console.log('Format-related error detected, switching to direct YouTube search fallback');
         
         // Get the failed track
