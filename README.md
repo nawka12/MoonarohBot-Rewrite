@@ -70,7 +70,8 @@ The bot supports the following slash commands:
 PM2 is a process manager for Node.js applications that helps keep your bot running continuously.
 
 1. Install PM2 globally
-   ```   npm install -g pm2
+   ```   
+   npm install -g pm2
    ```
 
 2. Start the bot with PM2
