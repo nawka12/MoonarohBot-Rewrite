@@ -64,6 +64,9 @@ The bot supports the following slash commands:
 | `/shuffle` | Shuffles the current queue |
 | `/remove` | Removes a specific song from the queue |
 | `/seek` | Jumps to a specific position in the current song |
+| `/lyrics` | Displays lyrics for the currently playing song or a specified search query |
+
+**Note:** The lyrics command has a known issue where artist name and song title may be shown as unknown, but the actual lyrics are still displayed correctly.
 
 ## Running with PM2 (Recommended for 24/7 operation)
 
