@@ -93,6 +93,15 @@ module.exports = {
                     let lastTimestamp = '';
                     let lastLine = '';
                     
+                    // Function to convert milliseconds to minutes:seconds.milliseconds format
+                    const formatTimestamp = (ms) => {
+                        const totalSeconds = Math.floor(ms / 1000);
+                        const minutes = Math.floor(totalSeconds / 60);
+                        const seconds = totalSeconds % 60;
+                        const milliseconds = ms % 1000;
+                        return `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+                    };
+                    
                     // Listen to live updates
                     syncedLyrics.onChange(async (line, timestamp) => {
                         if (line) {
@@ -104,17 +113,20 @@ module.exports = {
                             lastTimestamp = timestamp;
                             lastLine = line;
                             
+                            // Format the timestamp
+                            const formattedTime = formatTimestamp(parseInt(timestamp));
+                            
                             try {
                                 // Edit the same message with new lyrics
                                 await lyricsMessage.edit({
-                                    content: `🎵 | [${timestamp}]: ${line}`
+                                    content: `🎵 | [${formattedTime}]: ${line}`
                                 });
                             } catch (editError) {
                                 console.error('Error editing lyrics message:', editError);
                                 // If editing fails (e.g., message too old), send a new message
                                 try {
                                     const newLyricsMessage = await interaction.channel.send({
-                                        content: `🎵 | [${timestamp}]: ${line}`
+                                        content: `🎵 | [${formattedTime}]: ${line}`
                                     });
                                     // Update our reference to the new message
                                     lyricsMessage = newLyricsMessage;
