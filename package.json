@@ -21,7 +21,7 @@
     "discord-api-types": "^0.38.3",
     "discord-player": "^7.1.0",
     "discord-player-spotify": "^1.0.0",
-    "discord-player-youtubei": "github:retrouser955/discord-player-youtubei",
+    "discord-player-youtubei": "^1.2.3",
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
     "ffmpeg-static": "^5.2.0",
