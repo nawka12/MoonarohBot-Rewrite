@@ -2,20 +2,12 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { QueryType } = require('discord-player');
 
 // Get access to the global fallback tracking
-const fallbacksInProgress = global.fallbacksInProgress || (global.fallbacksInProgress = new Map());
+const fallbacksInProgress = global.fallbacksInProgress;
 
 // Helper to safely set fallback tracking with timeout
 function setFallbackInProgress(guildId) {
     console.log(`[DEBUG] Play command setting fallback in progress for guild ${guildId}`);
     fallbacksInProgress.set(guildId, true);
-    
-    // Auto-clear after 2 minutes to prevent getting stuck
-    setTimeout(() => {
-        if (fallbacksInProgress.has(guildId)) {
-            console.log(`[DEBUG] Auto-clearing play command fallback status for guild ${guildId} after timeout`);
-            fallbacksInProgress.delete(guildId);
-        }
-    }, 120000); // 2 minutes timeout
 }
 
 module.exports = {

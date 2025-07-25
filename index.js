@@ -7,6 +7,9 @@ const { AppleMusicExtractor } = require('@discord-player/extractor');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Initialize global fallback tracking immediately
+global.fallbacksInProgress = new Map();
+
 // Check if TOKEN exists (prefer TOKEN over DISCORD_BOT_TOKEN for compatibility)
 const token = process.env.TOKEN || process.env.DISCORD_BOT_TOKEN;
 console.log('Bot token exists:', !!token);
@@ -167,7 +170,6 @@ async function deployCommands() {
 const disconnectTimers = new Map();
 
 // Track fallback operations in progress (made global for sharing across modules)
-global.fallbacksInProgress = new Map();
 const fallbacksInProgress = global.fallbacksInProgress;
 
 // Helper to set fallback in progress with an automatic timeout
@@ -459,7 +461,7 @@ async function handleTrackFallback(queue, track, errorMessage) {
             console.log(`All ${attempts} fallback attempts failed`);
             await queue.metadata.channel.send(`❌ | All fallback attempts failed after trying ${attempts} alternatives.`);
             
-            fallbacksInProgress.delete(queue.guild.id);
+            // fallbacksInProgress.delete(queue.guild.id);
             return false;
         } else {
             // No search results
@@ -467,14 +469,14 @@ async function handleTrackFallback(queue, track, errorMessage) {
             await queue.metadata.channel.send(`❌ | Could not find any alternatives for "${track.title}"`);
         }
         
-        fallbacksInProgress.delete(queue.guild.id);
+        // fallbacksInProgress.delete(queue.guild.id);
         return false;
     } catch (fallbackError) {
         console.error(`[Fallback System Error]`, fallbackError);
         if (queue.metadata?.channel) {
             await queue.metadata.channel.send(`❌ | Fallback system error: ${fallbackError.message}`).catch(console.error);
         }
-        fallbacksInProgress.delete(queue.guild.id);
+        // fallbacksInProgress.delete(queue.guild.id);
         return false;
     }
 }
